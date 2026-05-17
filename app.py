@@ -9,7 +9,6 @@ app = Flask(__name__)
 
 line_bot_api = LineBotApi(os.environ.get('CHANNEL_ACCESS_TOKEN'))
 handler = WebhookHandler(os.environ.get('CHANNEL_SECRET'))
-claude = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY'))
 
 SYSTEM_PROMPT = """你是一個溫柔的情緒陪伴助手，專門陪伴高壓工作者恢復情緒狀態。
 
@@ -33,8 +32,7 @@ SYSTEM_PROMPT = """你是一個溫柔的情緒陪伴助手，專門陪伴高壓�
 注意：
 - 總字數控制在150字以內
 - 不要問太多問題，直接給出陪伴
-- 不要說「我了解你的感受」這種空話
-- 如果對方說的不像情緒相關，溫柔引導回來"""
+- 不要說「我了解你的感受」這種空話"""
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -50,7 +48,12 @@ def callback():
 def handle_message(event):
     user_text = event.message.text.strip()
     
+    api_key = os.environ.get('ANTHROPIC_API_KEY')
+    print(f"API KEY exists: {bool(api_key)}")
+    print(f"API KEY prefix: {api_key[:15] if api_key else 'NONE'}")
+    
     try:
+        claude = anthropic.Anthropic(api_key=api_key)
         response = claude.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=400,
@@ -60,8 +63,10 @@ def handle_message(event):
             ]
         )
         reply = response.content[0].text
+        print(f"Claude reply success: {reply[:30]}")
     except Exception as e:
-        reply = "你說的我都收到了 💙\n現在先做一件事：慢慢吸氣 4 秒，吐氣 6 秒。\n你不需要現在解決所有事情。"
+        print(f"Claude error: {str(e)}")
+        reply = f"錯誤：{str(e)[:100]}"
     
     line_bot_api.reply_message(
         event.reply_token,
