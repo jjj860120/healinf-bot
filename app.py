@@ -44,10 +44,12 @@ def save_user(sheet, user_id, data):
         now,
         data.get('name',''),
         data.get('recent_messages',''),
-        data.get('onboarded','0')
+        data.get('onboarded','0'),
+        data.get('birth_time','12:00'),
+        data.get('birth_city','台北')
     ]
     if row_num:
-        sheet.update(f'A{row_num}:H{row_num}', [row])
+        sheet.update(f'A{row_num}:J{row_num}', [row])
     else:
         sheet.append_row(row)
 
@@ -69,12 +71,13 @@ def format_recent(messages):
         return '尚無對話紀錄'
     lines = []
     for m in messages:
-        role = '用戶' if m['role']=='user' else '心緒'
+        role = '用戶' if m['role']=='user' else '心緩'
         lines.append(f"{role}：{m['content']}")
     return '\n'.join(lines)
 
-# Prompts
-QUOTE_PROMPT = """你是心緒，根據用戶說的話，選一句最適合的名言、金句或電影台詞送給他。
+SKIP_WORDS = ['跳過','不知道','略過','skip','沒有','不清楚']
+
+QUOTE_PROMPT = """你是心緩，根據用戶說的話，選一句最適合的名言、金句或電影台詞送給他。
 
 規則：
 - 只輸出一句話加來源，不要其他文字
@@ -89,6 +92,8 @@ QUOTE_PROMPT = """你是心緒，根據用戶說的話，選一句最適合的�
 MONTHLY_FORTUNE_PROMPT = """假設你是 Bangalore Venkata Raman，根據用戶的八字和印度星盤，給出這個月的運勢建議。
 
 生日：{birthday}
+出生時間：{birth_time}
+出生城市：台灣{birth_city}
 本月：{current_month}
 
 規則：
@@ -96,11 +101,13 @@ MONTHLY_FORTUNE_PROMPT = """假設你是 Bangalore Venkata Raman，根據用戶�
 - 最多3句話
 - 語氣像命理大師，溫暖有權威感
 - 繁體中文
-- 不要說「根據你的星盤」這種開場白，直接說建議"""
+- 直接說建議，不要說「根據你的星盤」這種開場白"""
 
-ONBOARD_QUOTE_PROMPT = """你是心緒，根據用戶說的煩惱，選一句最適合的名言、金句或電影台詞送給他，再加上這個月的運勢建議。
+ONBOARD_QUOTE_PROMPT = """你是心緩，根據用戶說的煩惱，選一句最適合的名言、金句或電影台詞送給他，再加上這個月的運勢建議。
 
 生日：{birthday}
+出生時間：{birth_time}
+出生城市：台灣{birth_city}
 本月：{current_month}
 用戶的煩惱：{concern}
 
@@ -113,7 +120,7 @@ ONBOARD_QUOTE_PROMPT = """你是心緒，根據用戶說的煩惱，選一句最
 運勢建議第二句
 運勢建議第三句"""
 
-COMPANION_PROMPT = """你是心緒，一個溫柔的情緒陪伴助手。
+COMPANION_PROMPT = """你是心緩，一個溫柔的情緒陪伴助手。
 
 這個人的情緒摘要：{emotion_summary}
 最近對話：{recent_messages}
@@ -126,7 +133,7 @@ COMPANION_PROMPT = """你是心緒，一個溫柔的情緒陪伴助手。
 - 繁體中文
 - 不說教"""
 
-CONTINUE_PROMPT = """你是心緒，一個溫柔的情緒陪伴助手。
+CONTINUE_PROMPT = """你是心緩，一個溫柔的情緒陪伴助手。
 
 這個人的情緒摘要：{emotion_summary}
 最近對話：{recent_messages}
@@ -138,7 +145,7 @@ CONTINUE_PROMPT = """你是心緒，一個溫柔的情緒陪伴助手。
 規則：
 - 總字數80字以內
 - 繁體中文
-- 如果進入第2階段結尾加：「\\n\\n今天想讓我幫你看看本月運勢嗎？（請回答 要 或 不要）」"""
+- 如果進入第2階段結尾加：\"\\n\\n今天想讓我幫你看看本月運勢嗎？（請回答 要 或 不要）\""""
 
 UPDATE_SUMMARY_PROMPT = """用一句話更新這個人的情緒摘要（20字以內，繁體中文）：
 舊摘要：{old_summary}
@@ -162,16 +169,15 @@ def callback():
         abort(400)
     return 'OK'
 
-# 加入好友事件
 @handler.add(FollowEvent)
 def handle_follow(event):
     user_id = event.source.user_id
     try:
         sheet = init_sheets()
-        save_user(sheet, user_id, {'state': 'ob1', 'onboarded': '0'})
+        save_user(sheet, user_id, {'state':'ob1','onboarded':'0','birth_time':'12:00','birth_city':'台北'})
     except Exception as e:
         print(f"Follow error: {e}")
-    reply = "你好，這裡是心緩 🌙\n\n在我們開始之前，想多認識你一點\n\n請告訴我你的生日\n格式：西元年/月/日\n例如：1990/03/15"
+    reply = "你好，我是心緩 🌙\n\n在我們開始之前，想多認識你一點\n\n請告訴我你的生日\n格式：西元年/月/日\n例如：1990/03/15"
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
 
 @handler.add(MessageEvent, message=TextMessage)
@@ -185,16 +191,18 @@ def handle_message(event):
         row_num, user_data = get_user(sheet, user_id)
 
         if not user_data:
-            save_user(sheet, user_id, {'state': 'ob1', 'onboarded': '0'})
+            save_user(sheet, user_id, {'state':'ob1','onboarded':'0','birth_time':'12:00','birth_city':'台北'})
             row_num, user_data = get_user(sheet, user_id)
 
         state = str(user_data.get('state','0'))
         emotion_summary = user_data.get('emotion_summary','')
         birthday = user_data.get('birthday','')
+        birth_time = user_data.get('birth_time','12:00') or '12:00'
+        birth_city = user_data.get('birth_city','台北') or '台北'
         onboarded = str(user_data.get('onboarded','0'))
         recent_messages = get_recent_messages(user_data)
 
-        # 入場流程 ob1：等待生日
+        # ob1：等待生日
         if state == 'ob1':
             parts = re.split(r'[/-]', user_text.strip())
             if len(parts) == 3:
@@ -202,29 +210,67 @@ def handle_message(event):
                     'state': 'ob2',
                     'birthday': user_text,
                     'onboarded': '0',
+                    'birth_time': '12:00',
+                    'birth_city': '台北',
                     'emotion_summary': emotion_summary,
                     'recent_messages': json.dumps(recent_messages, ensure_ascii=False)
                 })
-                reply = "謝謝你 💙\n\n最近有什麼讓你感到困擾或沉重的事嗎？"
+                reply = "謝謝你 🌙\n\n出生時間會影響你的上升星座和命宮\n如果知道的話會更準確\n\n請問你的出生時間是幾點幾分？\n例如：14:30\n\n不知道的話請傳「跳過」\n系統會用中午12點計算"
             else:
                 reply = "格式好像不太對，再試一次嗎？\n例如：1990/03/15"
 
-        # 入場流程 ob2：等待煩惱
+        # ob2：等待出生時間
         elif state == 'ob2':
+            if any(w in user_text for w in SKIP_WORDS):
+                bt = '12:00'
+            else:
+                bt = user_text.strip()
+            save_user(sheet, user_id, {
+                'state': 'ob3',
+                'birthday': birthday,
+                'onboarded': '0',
+                'birth_time': bt,
+                'birth_city': '台北',
+                'emotion_summary': emotion_summary,
+                'recent_messages': json.dumps(recent_messages, ensure_ascii=False)
+            })
+            reply = "收到 💙\n\n出生縣市會影響地理位置的星盤計算\n\n請問你在台灣哪個縣市出生？\n例如：台北、台中、高雄\n\n不知道的話請傳「跳過」\n系統會用台北計算"
+
+        # ob3：等待出生縣市
+        elif state == 'ob3':
+            if any(w in user_text for w in SKIP_WORDS):
+                bc = '台北'
+            else:
+                bc = user_text.strip()
+            save_user(sheet, user_id, {
+                'state': 'ob4',
+                'birthday': birthday,
+                'onboarded': '0',
+                'birth_time': birth_time,
+                'birth_city': bc,
+                'emotion_summary': emotion_summary,
+                'recent_messages': json.dumps(recent_messages, ensure_ascii=False)
+            })
+            reply = "好的 🌙\n\n最近有什麼讓你感到困擾或沉重的事嗎？"
+
+        # ob4：等待煩惱
+        elif state == 'ob4':
             prompt = ONBOARD_QUOTE_PROMPT.format(
                 birthday=birthday,
+                birth_time=birth_time,
+                birth_city=birth_city,
                 current_month=current_month,
                 concern=user_text
             )
             response = model.generate_content(prompt)
             reply = response.text
 
-            recent_messages = update_messages(recent_messages, 'user', user_text)
-            recent_messages = update_messages(recent_messages, 'assistant', reply)
+            recent_messages = update_messages(recent_messages,'user',user_text)
+            recent_messages = update_messages(recent_messages,'assistant',reply)
 
             try:
                 summary_response = model.generate_content(
-                    UPDATE_SUMMARY_PROMPT.format(old_summary='', user_text=user_text)
+                    UPDATE_SUMMARY_PROMPT.format(old_summary='',user_text=user_text)
                 )
                 emotion_summary = summary_response.text.strip()
             except:
@@ -234,6 +280,8 @@ def handle_message(event):
                 'state': '0',
                 'birthday': birthday,
                 'onboarded': '1',
+                'birth_time': birth_time,
+                'birth_city': birth_city,
                 'emotion_summary': emotion_summary,
                 'recent_messages': json.dumps(recent_messages, ensure_ascii=False)
             })
@@ -243,15 +291,19 @@ def handle_message(event):
             if user_text in YES_WORDS:
                 prompt = MONTHLY_FORTUNE_PROMPT.format(
                     birthday=birthday,
+                    birth_time=birth_time,
+                    birth_city=birth_city,
                     current_month=current_month
                 )
                 response = model.generate_content(prompt)
                 reply = response.text
-                recent_messages = update_messages(recent_messages, 'assistant', reply)
+                recent_messages = update_messages(recent_messages,'assistant',reply)
                 save_user(sheet, user_id, {
                     'state': '0',
                     'birthday': birthday,
                     'onboarded': '1',
+                    'birth_time': birth_time,
+                    'birth_city': birth_city,
                     'emotion_summary': emotion_summary,
                     'recent_messages': json.dumps(recent_messages, ensure_ascii=False)
                 })
@@ -261,43 +313,41 @@ def handle_message(event):
                     'state': '0',
                     'birthday': birthday,
                     'onboarded': '1',
+                    'birth_time': birth_time,
+                    'birth_city': birth_city,
                     'emotion_summary': emotion_summary,
                     'recent_messages': json.dumps(recent_messages, ensure_ascii=False)
                 })
             else:
                 reply = "請回答「要」或「不要」喔 🙏"
 
-        # 狀態 1：陪伴中，AI 判斷繼續或給建議
+        # 狀態 1：陪伴中
         elif state == '1':
-            recent_messages = update_messages(recent_messages, 'user', user_text)
+            recent_messages = update_messages(recent_messages,'user',user_text)
             recent_str = format_recent(recent_messages)
             prompt = f"{CONTINUE_PROMPT.format(emotion_summary=emotion_summary or '第一次對話', recent_messages=recent_str)}\n\n用戶說：{user_text}"
             response = model.generate_content(prompt)
             reply = response.text
-
             new_state = '2' if '要 或 不要' in reply else '1'
-            recent_messages = update_messages(recent_messages, 'assistant', reply)
-
+            recent_messages = update_messages(recent_messages,'assistant',reply)
             save_user(sheet, user_id, {
                 'state': new_state,
                 'birthday': birthday,
                 'onboarded': '1',
+                'birth_time': birth_time,
+                'birth_city': birth_city,
                 'emotion_summary': emotion_summary,
                 'recent_messages': json.dumps(recent_messages, ensure_ascii=False)
             })
 
-        # 狀態 0：新的一輪對話，給金句
+        # 狀態 0：新對話，給金句
         else:
-            recent_messages = update_messages(recent_messages, 'user', user_text)
-
+            recent_messages = update_messages(recent_messages,'user',user_text)
             prompt = QUOTE_PROMPT.format(user_text=user_text)
             response = model.generate_content(prompt)
             quote_reply = response.text.strip()
-
-            invite = "\n\n想跟我說說發生什麼事了嗎？"
-            reply = quote_reply + invite
-
-            recent_messages = update_messages(recent_messages, 'assistant', reply)
+            reply = quote_reply + "\n\n想跟我說說發生什麼事了嗎？"
+            recent_messages = update_messages(recent_messages,'assistant',reply)
 
             try:
                 summary_response = model.generate_content(
@@ -314,6 +364,8 @@ def handle_message(event):
                 'state': '1',
                 'birthday': birthday,
                 'onboarded': '1',
+                'birth_time': birth_time,
+                'birth_city': birth_city,
                 'emotion_summary': emotion_summary,
                 'recent_messages': json.dumps(recent_messages, ensure_ascii=False)
             })
