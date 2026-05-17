@@ -2,4 +2,5 @@ flask
 line-bot-sdk
 gunicorn
 google-generativeai
-
+gspread
+google-auth
