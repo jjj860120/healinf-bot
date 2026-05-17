@@ -1,5 +1,5 @@
 import os
-import anthropic
+import google.generativeai as genai
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -10,6 +10,9 @@ app = Flask(__name__)
 line_bot_api = LineBotApi(os.environ.get('CHANNEL_ACCESS_TOKEN'))
 handler = WebhookHandler(os.environ.get('CHANNEL_SECRET'))
 
+genai.configure(api_key=os.environ.get('GEMINI_API_KEY'))
+model = genai.GenerativeModel('gemini-1.5-flash')
+
 SYSTEM_PROMPT = """你是一個溫柔的情緒陪伴助手，專門陪伴高壓工作者恢復情緒狀態。
 
 你的個性：
@@ -19,7 +22,7 @@ SYSTEM_PROMPT = """你是一個溫柔的情緒陪伴助手，專門陪伴高壓�
 - 說繁體中文
 
 你的任務：
-1. 先判斷對方現在的情緒狀態（焦慮、疲憊、空虛、憤怒、迷茫、壓力大、難過等）
+1. 判斷對方現在的情緒狀態（焦慮、疲憊、空虛、憤怒、迷茫、壓力大、難過等）
 2. 用一句話讓對方感覺「有人懂我」
 3. 給一個當下可以做的小動作（30秒到3分鐘內能完成）
 4. 給一句今日提醒
@@ -47,27 +50,16 @@ def callback():
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_text = event.message.text.strip()
-    
-    api_key = os.environ.get('ANTHROPIC_API_KEY')
-    print(f"API KEY exists: {bool(api_key)}")
-    print(f"API KEY prefix: {api_key[:15] if api_key else 'NONE'}")
-    
+
     try:
-        claude = anthropic.Anthropic(api_key=api_key)
-        response = claude.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=400,
-            system=SYSTEM_PROMPT,
-            messages=[
-                {"role": "user", "content": user_text}
-            ]
-        )
-        reply = response.content[0].text
-        print(f"Claude reply success: {reply[:30]}")
+        prompt = f"{SYSTEM_PROMPT}\n\n用戶說：{user_text}"
+        response = model.generate_content(prompt)
+        reply = response.text
+        print(f"Gemini reply: {reply[:50]}")
     except Exception as e:
-        print(f"Claude error: {str(e)}")
-        reply = f"錯誤：{str(e)[:100]}"
-    
+        print(f"Gemini error: {str(e)}")
+        reply = "你說的我都收到了 💙\n先慢慢吸氣 4 秒，吐氣 6 秒。\n你不需要現在解決所有事情。"
+
     line_bot_api.reply_message(
         event.reply_token,
         TextSendMessage(text=reply)
