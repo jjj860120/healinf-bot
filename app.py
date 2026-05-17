@@ -177,7 +177,7 @@ def handle_follow(event):
         save_user(sheet, user_id, {'state':'ob1','onboarded':'0','birth_time':'12:00','birth_city':'台北'})
     except Exception as e:
         print(f"Follow error: {e}")
-    reply = "你好，我是心緩 🌙\n\n在我們開始之前，想多認識你一點\n\n請告訴我你的生日\n格式：西元年/月/日\n例如：1990/03/15"
+    reply = "你好，我是心緩 🌙\n\n在我們開始之前，想多認識你一點\n這樣我給你的運勢和陪伴會更貼近你\n\n請告訴我以下資料：\n\n🗓 生日：西元年/月/日\n　 例如：1990/03/15\n\n⏰ 出生時間：時:分\n　 例如：14:30\n　 不知道請填「不知道」\n\n📍 出生縣市：\n　 例如：台北、台中、高雄\n　 不知道請填「不知道」"
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
 
 @handler.add(MessageEvent, message=TextMessage)
@@ -202,57 +202,45 @@ def handle_message(event):
         onboarded = str(user_data.get('onboarded','0'))
         recent_messages = get_recent_messages(user_data)
 
-        # ob1：等待生日
+        # ob1：等待生日+時間+城市（一次輸入）
         if state == 'ob1':
-            parts = re.split(r'[/-]', user_text.strip())
-            if len(parts) == 3:
+            lines = [l.strip() for l in user_text.strip().splitlines() if l.strip()]
+            
+            # 解析生日
+            birthday_input = ''
+            birth_time_input = '12:00'
+            birth_city_input = '台北'
+            
+            for line in lines:
+                # 嘗試解析生日
+                parts = re.split(r'[/-]', line)
+                if len(parts) == 3 and parts[0].isdigit() and not birthday_input:
+                    birthday_input = line
+                # 嘗試解析時間
+                elif re.match(r'^\d{1,2}:\d{2}$', line):
+                    birth_time_input = line
+                # 判斷不知道
+                elif any(w in line for w in SKIP_WORDS):
+                    pass
+                # 縣市（非生日非時間的中文）
+                elif re.search(r'[\u4e00-\u9fff]', line) and not birthday_input:
+                    pass
+                elif re.search(r'[\u4e00-\u9fff]', line):
+                    birth_city_input = line
+
+            if not birthday_input:
+                reply = "格式好像不太對，再試一次嗎？\n\n🗓 生日：1990/03/15\n⏰ 出生時間：14:30（不知道填「不知道」）\n📍 出生縣市：台北（不知道填「不知道」）"
+            else:
                 save_user(sheet, user_id, {
-                    'state': 'ob2',
-                    'birthday': user_text,
+                    'state': 'ob4',
+                    'birthday': birthday_input,
                     'onboarded': '0',
-                    'birth_time': '12:00',
-                    'birth_city': '台北',
-                    'emotion_summary': emotion_summary,
-                    'recent_messages': json.dumps(recent_messages, ensure_ascii=False)
+                    'birth_time': birth_time_input,
+                    'birth_city': birth_city_input,
+                    'emotion_summary': '',
+                    'recent_messages': '[]'
                 })
-                reply = "謝謝你 🌙\n\n出生時間會影響你的上升星座和命宮\n如果知道的話會更準確\n\n請問你的出生時間是幾點幾分？\n例如：14:30\n\n不知道的話請傳「跳過」\n系統會用中午12點計算"
-            else:
-                reply = "格式好像不太對，再試一次嗎？\n例如：1990/03/15"
-
-        # ob2：等待出生時間
-        elif state == 'ob2':
-            if any(w in user_text for w in SKIP_WORDS):
-                bt = '12:00'
-            else:
-                bt = user_text.strip()
-            save_user(sheet, user_id, {
-                'state': 'ob3',
-                'birthday': birthday,
-                'onboarded': '0',
-                'birth_time': bt,
-                'birth_city': '台北',
-                'emotion_summary': emotion_summary,
-                'recent_messages': json.dumps(recent_messages, ensure_ascii=False)
-            })
-            reply = "收到 💙\n\n出生縣市會影響地理位置的星盤計算\n\n請問你在台灣哪個縣市出生？\n例如：台北、台中、高雄\n\n不知道的話請傳「跳過」\n系統會用台北計算"
-
-        # ob3：等待出生縣市
-        elif state == 'ob3':
-            if any(w in user_text for w in SKIP_WORDS):
-                bc = '台北'
-            else:
-                bc = user_text.strip()
-            save_user(sheet, user_id, {
-                'state': 'ob4',
-                'birthday': birthday,
-                'onboarded': '0',
-                'birth_time': birth_time,
-                'birth_city': bc,
-                'emotion_summary': emotion_summary,
-                'recent_messages': json.dumps(recent_messages, ensure_ascii=False)
-            })
-            reply = "好的 🌙\n\n最近有什麼讓你感到困擾或沉重的事嗎？"
-
+                reply = "好的 🌙\n\n最近有什麼讓你感到困擾或沉重的事嗎？"
         # ob4：等待煩惱
         elif state == 'ob4':
             prompt = ONBOARD_QUOTE_PROMPT.format(
