@@ -4,3 +4,5 @@ gunicorn
 google-generativeai
 gspread
 google-auth
+ephem
+pytz
